@@ -1,0 +1,23 @@
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+apps/api/src/.env
+apps/api/.env
+
+# Local databases and SQLite files
+apps/api/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Dependencies and generated files
+node_modules/
+dist/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+*.backup
