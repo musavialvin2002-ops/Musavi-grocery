@@ -4,8 +4,13 @@ import cors from "cors";
 import "dotenv/config";
 import { timingSafeEqual } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { saveOrder, getOrders, getOrder, updateOrder } from "./database.js";
-
+import {
+  initializeDatabase,
+  saveOrder,
+  getOrders,
+  getOrder,
+  updateOrder,
+} from "./database.js";
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -101,7 +106,7 @@ app.get("/api/products", (_req, res) => {
   res.json({ products, currency: "KES" });
 });
 
-app.post("/api/orders", (req, res) => {
+app.post("/api/orders", async (req, res) => {
   const {
     customerName,
     customerPhone,
@@ -195,7 +200,7 @@ app.post("/api/orders", (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-saveOrder(order);
+await saveOrder(order);
   console.log("New MUSAVI'S GROCERY order received:", order.reference);
 
   return res.status(201).json({
@@ -210,18 +215,25 @@ saveOrder(order);
 
 // Temporary local testing endpoint.
 // Do not expose customer order details through a public endpoint.
-app.get("/api/orders", requireOwner, (_req, res) => {  res.json({
-orders: getOrders().map((order) => ({      reference: order.reference,
-      customerName: order.customerName,
-      total: order.total,
-      status: order.status,
-      createdAt: order.createdAt,
-    })),
-  });
+
+app.get("/api/orders", requireOwner, async (_req, res) => {
+  try {
+    res.json({
+      orders: (await getOrders()).map((order) => ({
+        reference: order.reference,
+        customerName: order.customerName,
+        total: order.total,
+        status: order.status,
+        createdAt: order.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to load orders:", error);
+    res.status(500).json({ error: "Failed to load orders." });
+  }
 });
 
-
-app.patch("/api/orders/:reference/status", requireOwner, (req, res) => {  const { reference } = req.params;
+app.patch("/api/orders/:reference/status", requireOwner, async (req, res) => {
   const { status } = req.body ?? {};
 
   const allowedStatuses = [
@@ -238,14 +250,17 @@ app.patch("/api/orders/:reference/status", requireOwner, (req, res) => {  const 
     });
   }
 
-const order = getOrder(reference);
+const { reference } = req.params;
+console.log("Status update requested for:", reference);
+const order = await getOrder(reference);
+console.log("Order found:", Boolean(order));
   if (!order) {
     return res.status(404).json({
       error: "Order not found.",
     });
   }
 
-updateOrder(reference, status);
+await updateOrder(reference, status);
 order.status = status;
   console.log(`Order ${reference} status updated to ${status}`);
 
@@ -259,6 +274,13 @@ order.status = status;
 });
 
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`MUSAVI'S GROCERY API running at http://127.0.0.1:${PORT}`);
-});
+initializeDatabase()
+  .then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`MUSAVI'S GROCERY API running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to initialize the Supabase database:", error);
+    process.exit(1);
+  });
