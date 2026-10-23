@@ -14,6 +14,61 @@ import {
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
+async function sendOrderEmail(order) {
+  if (!process.env.RESEND_API_KEY) {
+    console.error("Order email skipped: RESEND_API_KEY is not configured.");
+    return;
+  }
+
+  const itemsText = order.items
+    .map((item) => `${item.productName}: KSh ${item.budget}`)
+    .join("\n");
+
+  const emailText = [
+    "A new MUSAVI'S GROCERY order has been received.",
+    "",
+    `Order reference: ${order.reference}`,
+    `Customer: ${order.customerName}`,
+    `Phone: ${order.customerPhone}`,
+    `Delivery location: ${order.deliveryLocation}`,
+    `Delivery instructions: ${order.deliveryInstructions || "None"}`,
+    "",
+    "Items:",
+    itemsText,
+    "",
+    `Total: KSh ${order.total}`,
+    `Payment: ${order.paymentMethod}`,
+    `Status: ${order.status}`,
+  ].join("\n");
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL,
+        to: ["musavialvin2002@gmail.com"],
+        subject: `New grocery order ${order.reference}`,
+        text: emailText,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error("Order email failed:", result);
+      return;
+    }
+
+    console.log("Order email accepted by Resend:", result.id);
+  } catch (error) {
+    console.error("Order email failed:", error.message);
+  }
+}
+
 
 app.use(
   cors({
@@ -207,7 +262,9 @@ app.post("/api/orders", async (req, res) => {
   };
 
 await saveOrder(order);
-  console.log("New MUSAVI'S GROCERY order received:", order.reference);
+console.log("New MUSAVI'S GROCERY order received:", order.reference);
+
+void sendOrderEmail(order);
 
   return res.status(201).json({
     message: "Your order has been received.",
