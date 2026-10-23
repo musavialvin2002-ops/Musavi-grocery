@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 const formatKES = (amount) =>
   new Intl.NumberFormat("en-KE", {
     style: "currency",
@@ -18,7 +18,7 @@ export default function OwnerDashboard() {
     setRefreshing(true);
 
     try {
-      const response = await fetch("http://127.0.0.1:4000/api/orders", {
+const response = await fetch(`${API_URL}/api/orders`, {
         headers: {
           "x-owner-password": ownerPassword,
         },
@@ -50,8 +50,8 @@ export default function OwnerDashboard() {
     async function updateStatus(reference, status) {
     try {
       const response = await fetch(
-        `http://127.0.0.1:4000/api/orders/${reference}/status`,
-        {
+  `${API_URL}/api/orders/${reference}/status`,
+  {
           method: "PATCH",
           headers: {
   "Content-Type": "application/json",

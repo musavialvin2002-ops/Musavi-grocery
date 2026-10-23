@@ -14,13 +14,19 @@ import {
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
+
 app.use(
   cors({
-origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      process.env.WEB_ORIGIN,
+    ].filter(Boolean),
     allowedHeaders: ["Content-Type", "x-owner-password"],
     methods: ["GET", "POST", "PATCH", "OPTIONS"],
   })
 );
+
 function requireOwner(req, res, next) {
   const expectedPassword = process.env.OWNER_PASSWORD;
   const suppliedPassword = req.get("x-owner-password") || "";

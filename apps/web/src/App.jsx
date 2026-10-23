@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import OwnerDashboard from "./OwnerDashboard.jsx";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
+
 const formatKES = (amount) =>
   new Intl.NumberFormat("en-KE", {
     style: "currency",
@@ -21,7 +23,7 @@ export default function App() {
 
     
   useEffect(() => {
-    fetch("http://127.0.0.1:4000/api/health")
+fetch(`${API_URL}/api/health`)
       .then((response) => {
         if (!response.ok) throw new Error("API unavailable");
         return response.json();
@@ -31,7 +33,7 @@ export default function App() {
       )
       .catch(() => setApiStatus("Offline"));
 
-    fetch("http://127.0.0.1:4000/api/products")
+fetch(`${API_URL}/api/products`)
       .then((response) => {
         if (!response.ok) throw new Error("Could not load products");
         return response.json();
@@ -281,7 +283,7 @@ onSubmit={async (event) => {
   };
 
   try {
-    const response = await fetch("http://127.0.0.1:4000/api/orders", {
+const response = await fetch(`${API_URL}/api/orders`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
