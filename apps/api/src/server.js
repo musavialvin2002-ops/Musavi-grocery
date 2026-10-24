@@ -4,12 +4,15 @@ import cors from "cors";
 import "dotenv/config";
 import { timingSafeEqual } from "node:crypto";
 import { randomUUID } from "node:crypto";
+
 import {
   initializeDatabase,
   saveOrder,
   getOrders,
   getOrder,
   updateOrder,
+  getSetting,
+  saveSetting,
 } from "./database.js";
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -70,17 +73,24 @@ async function sendOrderEmail(order) {
 }
 
 
+
 app.use(
   cors({
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
+      "http://localhost:5175",
+      "http://localhost:5176",
+      "http://localhost:5177",
+      "http://127.0.0.1:5176",
+      "http://127.0.0.1:5177",
       process.env.WEB_ORIGIN,
     ].filter(Boolean),
     allowedHeaders: ["Content-Type", "x-owner-password"],
     methods: ["GET", "POST", "PATCH", "OPTIONS"],
   })
 );
+
 
 function requireOwner(req, res, next) {
   const expectedPassword = process.env.OWNER_PASSWORD;
@@ -163,9 +173,164 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.get("/api/products", (_req, res) => {
-  res.json({ products, currency: "KES" });
+
+app.get("/api/products", async (_req, res) => {
+  try {
+    const savedProducts = await getSetting("products", products);
+
+    res.json({
+      products: savedProducts,
+      currency: "KES",
+    });
+  } catch (error) {
+    console.error("Failed to load products:", error);
+    res.status(500).json({
+      error: "Could not load products.",
+    });
+  }
 });
+
+app.patch("/api/products", requireOwner, async (req, res) => {
+  try {
+    const { products: updatedProducts } = req.body ?? {};
+
+    if (
+      !Array.isArray(updatedProducts) ||
+      updatedProducts.length < 1 ||
+      updatedProducts.length > 100
+    ) {
+      return res.status(400).json({
+        error: "Provide between 1 and 100 products.",
+      });
+    }
+
+    const ids = new Set();
+
+    for (const product of updatedProducts) {
+      if (
+        !product ||
+        typeof product.id !== "string" ||
+        !/^[a-z0-9-]{1,80}$/.test(product.id) ||
+        ids.has(product.id) ||
+        typeof product.name !== "string" ||
+        !product.name.trim() ||
+        typeof product.category !== "string" ||
+        typeof product.unit !== "string" ||
+        typeof product.available !== "boolean" ||
+        typeof product.description !== "string"
+      ) {
+        return res.status(400).json({
+          error: "One or more products have invalid details.",
+        });
+      }
+
+      ids.add(product.id);
+
+      if (
+        product.pricePerKg !== null &&
+        (!Number.isFinite(product.pricePerKg) || product.pricePerKg < 0)
+      ) {
+        return res.status(400).json({
+          error: "Product prices must be zero or greater.",
+        });
+      }
+
+      const imageUrl = product.imageUrl ?? product.image ?? "";
+
+      if (typeof imageUrl !== "string") {
+        return res.status(400).json({
+          error: "Product photo must be a URL.",
+        });
+      }
+
+      if (imageUrl) {
+        try {
+          const url = new URL(imageUrl);
+          if (!["http:", "https:"].includes(url.protocol)) {
+            throw new Error("Unsupported URL protocol.");
+          }
+        } catch {
+          return res.status(400).json({
+            error: "Enter a valid HTTP or HTTPS photo URL.",
+          });
+        }
+      }
+    }
+
+    const normalizedProducts = updatedProducts.map((product) => {
+      const imageUrl = product.imageUrl ?? product.image ?? "";
+
+      return {
+        id: product.id,
+        name: product.name.trim(),
+        category: product.category.trim(),
+        pricePerKg: product.pricePerKg,
+        unit: product.unit.trim(),
+        available: product.available,
+        image: imageUrl,
+        imageUrl,
+        description: product.description.trim(),
+      };
+    });
+
+    await saveSetting("products", normalizedProducts);
+
+    res.json({
+      message: "Products saved successfully.",
+      products: normalizedProducts,
+    });
+  } catch (error) {
+    console.error("Failed to save products:", error);
+    res.status(500).json({
+      error: "Could not save products.",
+    });
+  }
+});
+
+app.get("/api/shop-settings", async (_req, res) => {
+  try {
+    const settings = await getSetting("shop", {
+      closed: false,
+      closureMessage: "We'll be back soon as we restock.",
+      supportPhone: "0110396227",
+    });
+
+    res.json({ settings });
+  } catch (error) {
+    console.error("Failed to load shop settings:", error);
+    res.status(500).json({ message: "Could not load shop settings." });
+  }
+});
+
+app.patch("/api/shop-settings", requireOwner, async (req, res) => {
+  try {
+    const { closed, closureMessage, supportPhone } = req.body;
+
+    if (
+      typeof closed !== "boolean" ||
+      typeof closureMessage !== "string" ||
+      typeof supportPhone !== "string"
+    ) {
+      return res.status(400).json({
+        message: "Invalid shop settings.",
+      });
+    }
+
+    const settings = {
+      closed,
+      closureMessage: closureMessage.slice(0, 300),
+      supportPhone: supportPhone.slice(0, 30),
+    };
+
+    await saveSetting("shop", settings);
+
+    res.json({ message: "Shop settings saved.", settings });
+  } catch (error) {
+    console.error("Failed to save shop settings:", error);
+    res.status(500).json({ message: "Could not save shop settings." });
+  }
+});
+
 
 app.post("/api/orders", async (req, res) => {
   const {
@@ -175,6 +340,26 @@ app.post("/api/orders", async (req, res) => {
     deliveryInstructions = "",
     items,
   } = req.body ?? {};
+  
+  try {
+    const shopSettings = await getSetting("shop", {
+      closed: false,
+      closureMessage: "We'll be back soon as we restock.",
+      supportPhone: "0110396227",
+    });
+
+    if (shopSettings.closed) {
+      return res.status(503).json({
+        error: shopSettings.closureMessage,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to check shop settings:", error);
+    return res.status(500).json({
+      error: "We couldn't check shop availability. Please try again.",
+    });
+  }
+
 
   if (
     typeof customerName !== "string" ||
@@ -218,12 +403,12 @@ app.post("/api/orders", async (req, res) => {
     });
   }
 
-  const orderItems = [];
-
+const orderItems = [];
+const savedProducts = await getSetting("products", products);
   for (const item of items) {
-    const product = products.find(
-      (availableProduct) => availableProduct.id === item.productId
-    );
+    const product = savedProducts.find(
+  (availableProduct) => availableProduct.id === item.productId
+);
     const budget = Number(item.budget);
 
     if (!product || !product.available) {

@@ -315,6 +315,15 @@ footer small {
   font-size: 76px;
 }
 
+.product-image {
+  width: 100%;
+  max-width: 220px;
+  height: 145px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
 .product-details {
   padding: 22px;
 }

@@ -25,7 +25,14 @@ export async function initializeDatabase() {
     );
   `);
 
-  console.log("Supabase orders table is ready.");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shop_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value JSONB NOT NULL
+    );
+  `);
+
+  console.log("Supabase orders and shop settings tables are ready.");
 }
 
 export async function saveOrder(order) {
@@ -83,6 +90,32 @@ export async function updateOrder(reference, status) {
   );
 
   return result.rowCount > 0;
+}
+
+
+export async function getSetting(key, defaultValue = null) {
+  const result = await pool.query(
+    `SELECT setting_value
+     FROM shop_settings
+     WHERE setting_key = $1`,
+    [key]
+  );
+
+  if (result.rows.length === 0) {
+    return defaultValue;
+  }
+
+  return result.rows[0].setting_value;
+}
+
+export async function saveSetting(key, value) {
+  await pool.query(
+    `INSERT INTO shop_settings (setting_key, setting_value)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (setting_key)
+     DO UPDATE SET setting_value = EXCLUDED.setting_value`,
+    [key, JSON.stringify(value)]
+  );
 }
 
 export default pool;

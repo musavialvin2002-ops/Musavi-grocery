@@ -17,6 +17,11 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("Checking connection...");
   const [products, setProducts] = useState([]);
   const [loadError, setLoadError] = useState("");
+  const [shopSettings, setShopSettings] = useState({
+  closed: false,
+  closureMessage: "We'll be back soon as we restock.",
+  supportPhone: "0110396227",
+});
   const [amounts, setAmounts] = useState({});
   const [basket, setBasket] = useState([]);
   const [basketMessage, setBasketMessage] = useState("");
@@ -42,6 +47,22 @@ fetch(`${API_URL}/api/products`)
       .catch(() =>
         setLoadError("We couldn't load products. Please refresh the page.")
       );
+          fetch(`${API_URL}/api/shop-settings`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load shop settings");
+        return response.json();
+      })
+      .then((data) => {
+        if (data.settings) {
+          setShopSettings((current) => ({
+            ...current,
+            ...data.settings,
+          }));
+        }
+      })
+      .catch((error) => {
+        console.error("Could not load shop settings:", error);
+      });
   }, []);
   if (isOwnerPage) {
   return <OwnerDashboard />;
@@ -111,6 +132,13 @@ fetch(`${API_URL}/api/products`)
       </header>
 
       <main>
+        {shopSettings.closed && (
+  <section className="shop-closed-notice" role="alert">
+    <h2>Ordering is temporarily closed</h2>
+    <p>{shopSettings.closureMessage}</p>
+  </section>
+)}
+
         <section className="hero">
           <p className="eyebrow">YOUR NEIGHBOURHOOD GROCERY · KISII</p>
           <h1>
@@ -141,14 +169,23 @@ fetch(`${API_URL}/api/products`)
           <div className="product-grid">
             {products.map((product) => (
               <article className="product-card" key={product.id}>
-                <div className="product-picture" aria-hidden="true">
-                  {{
-                    tomatoes: "🍅",
-                    onions: "🧅",
-                    garlic: "🧄",
-                    "royco-cubes": "🛍️",
-                  }[product.id] || "🛒"}
-                </div>
+                
+<div className="product-picture">
+  {product.imageUrl ? (
+    <img
+      src={product.imageUrl}
+      alt={product.name}
+      className="product-image"
+    />
+  ) : (
+    {
+      tomatoes: "🍅",
+      onions: "🧅",
+      garlic: "🧄",
+      "royco-cubes": "🛍️",
+    }[product.id] || "🛒"
+  )}
+</div>
 
                 <div className="product-details">
                   <span className="product-category">{product.category}</span>
@@ -161,7 +198,9 @@ fetch(`${API_URL}/api/products`)
                   </p>
 
                   {!product.available ? (
-                    <p className="out-of-stock">Currently out of stock</p>
+<p className="out-of-stock">
+  We'll be back soon as we restock.
+</p>
                   ) : (
                     <div className="amount-control">
                       <label htmlFor={`amount-${product.id}`}>
@@ -261,7 +300,10 @@ fetch(`${API_URL}/api/products`)
             
 onSubmit={async (event) => {
   event.preventDefault();
-
+  if (shopSettings.closed) {
+    setBasketMessage(shopSettings.closureMessage);
+    return;
+  }
   if (basket.length === 0) {
     setBasketMessage("Please add groceries to your basket first.");
     return;
@@ -359,8 +401,7 @@ checkoutForm?.reset();
             <button
               className="primary-button checkout-button"
               type="submit"
-              disabled={basket.length === 0}
-            >
+disabled={basket.length === 0 || shopSettings.closed}            >
               Confirm Details
             </button>
           </form>
@@ -370,10 +411,14 @@ checkoutForm?.reset();
       </main>
 
       <footer>
-        <strong>MUSAVI'S GROCERY</strong>
-        <p>Fresh from the Farm, Straight to Your Home.</p>
-        <small>Serving customers around Kisii University, Kisii, Kenya.</small>
-      </footer>
+  <strong>MUSAVI'S GROCERY</strong>
+  <p>Fresh from the Farm, Straight to Your Home.</p>
+  <small>Serving customers around Kisii University, Kisii, Kenya.</small>
+  <p>
+    Customer support:{" "}
+    <a href="tel:+254110396227">0110396227</a>
+  </p>
+</footer>
     </div>
   );
 }
