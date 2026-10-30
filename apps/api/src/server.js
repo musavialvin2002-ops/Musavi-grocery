@@ -5,6 +5,7 @@ import "dotenv/config";
 import { timingSafeEqual } from "node:crypto";
 import { randomUUID } from "node:crypto";
 
+
 import {
   initializeDatabase,
   saveOrder,
@@ -13,7 +14,11 @@ import {
   updateOrder,
   getSetting,
   saveSetting,
+  saveSellerSubmission,
+  getSellerProducts,
+  deactivateSellerProduct,
 } from "./database.js";
+
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -24,8 +29,14 @@ async function sendOrderEmail(order) {
   }
 
   const itemsText = order.items
-    .map((item) => `${item.productName}: KSh ${item.budget}`)
-    .join("\n");
+  .map((item) => {
+    const sellerDetails = item.sellerPhone
+      ? `\n  Seller: ${item.sellerName}\n  Seller phone: ${item.sellerPhone}\n  Seller location: ${item.sellerLocation}`
+      : "\n  Supplied by MUSAVI'S GROCERY";
+
+    return `${item.productName}: KSh ${item.budget}${sellerDetails}`;
+  })
+  .join("\n");
 
   const emailText = [
     "A new MUSAVI'S GROCERY order has been received.",
@@ -165,6 +176,170 @@ const products = [
 // Temporary storage for local testing.
 // Orders will be lost if the server restarts.
 // Orders are now stored in the SQLite database.
+app.post("/api/seller-submissions", async (req, res) => {
+  const {
+  sellerName,
+  sellerPhone,
+  sellerLocation,
+  name,
+  category,
+  pricePerUnit,
+  unit,
+  description = "",
+  imageUrl = "",
+  imageUrls = [],
+  available = true,
+} = req.body ?? {};
+
+  if (
+    typeof sellerName !== "string" ||
+    sellerName.trim().length < 2 ||
+    sellerName.trim().length > 100
+  ) {
+    return res.status(400).json({ error: "Enter the seller's name." });
+  }
+
+  if (
+    typeof sellerPhone !== "string" ||
+    !/^(?:(?:07|01)\d{8}|254[17]\d{8})$/.test(sellerPhone.trim())
+  ) {
+    return res.status(400).json({
+      error: "Enter a valid Kenyan mobile number.",
+    });
+  }
+
+  if (
+    typeof sellerLocation !== "string" ||
+    sellerLocation.trim().length < 5 ||
+    sellerLocation.trim().length > 300
+  ) {
+    return res.status(400).json({
+      error: "Enter the seller's location.",
+    });
+  }
+
+  if (
+    typeof name !== "string" ||
+    name.trim().length < 2 ||
+    name.trim().length > 100
+  ) {
+    return res.status(400).json({ error: "Enter the product name." });
+  }
+
+  if (
+    typeof category !== "string" ||
+    category.trim().length < 2 ||
+    category.trim().length > 60
+  ) {
+    return res.status(400).json({ error: "Enter the product category." });
+  }
+
+  if (
+    typeof unit !== "string" ||
+    unit.trim().length < 1 ||
+    unit.trim().length > 30
+  ) {
+    return res.status(400).json({ error: "Enter the selling unit." });
+  }
+
+  const price = Number(pricePerUnit);
+
+  if (!Number.isFinite(price) || price < 0 || price > 10000000) {
+    return res.status(400).json({
+      error: "Enter a valid price of zero or more Kenyan shillings.",
+    });
+  }
+
+  if (typeof description !== "string" || description.length > 500) {
+    return res.status(400).json({
+      error: "The description must be 500 characters or fewer.",
+    });
+  }
+
+  if (
+    typeof imageUrl !== "string" ||
+    imageUrl.length > 2000 ||
+    (imageUrl.trim() !== "" &&
+      !/^https?:\/\/\S+$/i.test(imageUrl.trim()))
+  ) {
+    return res.status(400).json({
+      error: "The photo must use a valid HTTP or HTTPS image URL.",
+    });
+  }
+
+  if (!Array.isArray(imageUrls) || imageUrls.length > 5) {
+  return res.status(400).json({
+    error: "You can add a maximum of five product pictures.",
+  });
+}
+
+const finalImageUrls = imageUrls.length > 0
+  ? imageUrls
+  : imageUrl.trim() !== ""
+    ? [imageUrl.trim()]
+    : [];
+
+if (
+  finalImageUrls.some(
+    (url) =>
+      typeof url !== "string" ||
+      url.length > 2000 ||
+      !/^https?:\/\/\S+$/i.test(url.trim())
+  )
+) {
+  return res.status(400).json({
+    error: "All product pictures must have valid HTTP or HTTPS URLs.",
+  });
+}
+  if (typeof available !== "boolean") {
+    return res.status(400).json({
+      error: "Product availability must be true or false.",
+    });
+  }
+
+  const seller = {
+    id: randomUUID(),
+    name: sellerName.trim(),
+    phone: sellerPhone.trim(),
+    location: sellerLocation.trim(),
+  };
+
+  const product = {
+  id: `seller-${randomUUID()}`,
+  name: name.trim(),
+  category: category.trim(),
+  pricePerUnit: price,
+  unit: unit.trim(),
+  available,
+  description: description.trim(),
+  imageUrl: finalImageUrls[0] || "",
+  imageUrls: finalImageUrls,
+};
+
+  try {
+    await saveSellerSubmission(seller, product);
+
+    return res.status(201).json({
+      message: "Your product has been submitted successfully.",
+      product: {
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        pricePerKg: product.pricePerUnit,
+        unit: product.unit,
+        available: product.available,
+        image: product.imageUrl,
+        images: product.imageUrls,
+        description: product.description,
+      },
+    });
+  } catch (error) {
+    console.error("Seller product submission failed:", error.message);
+    return res.status(500).json({
+      error: "We could not save your product. Please try again.",
+    });
+  }
+});
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -174,12 +349,26 @@ app.get("/api/health", (_req, res) => {
 });
 
 
+
+
 app.get("/api/products", async (_req, res) => {
   try {
     const savedProducts = await getSetting("products", products);
+    const sellerProducts = await getSellerProducts();
+
+    // Never send seller contact details to public customers.
+    const publicSellerProducts = sellerProducts.map(
+      ({
+        sellerId,
+        sellerName,
+        sellerPhone,
+        sellerLocation,
+        ...publicProduct
+      }) => publicProduct
+    );
 
     res.json({
-      products: savedProducts,
+      products: [...savedProducts, ...publicSellerProducts],
       currency: "KES",
     });
   } catch (error) {
@@ -237,11 +426,47 @@ app.patch("/api/products", requireOwner, async (req, res) => {
 
       const imageUrl = product.imageUrl ?? product.image ?? "";
 
-      if (typeof imageUrl !== "string") {
-        return res.status(400).json({
-          error: "Product photo must be a URL.",
-        });
-      }
+     if (
+  typeof imageUrl !== "string" ||
+  imageUrl.length > 2000 ||
+  (imageUrl.trim() !== "" &&
+    !/^https?:\/\/\S+$/i.test(imageUrl.trim()))
+) {
+  return res.status(400).json({
+    error: "The photo must use a valid HTTP or HTTPS image URL.",
+  });
+}
+
+if (!Array.isArray(imageUrls) || imageUrls.length > 5) {
+  return res.status(400).json({
+    error: "You can add a maximum of five product pictures.",
+  });
+}
+
+const finalImageUrls = imageUrls.length > 0
+  ? imageUrls
+  : imageUrl.trim() !== ""
+    ? [imageUrl.trim()]
+    : [];
+
+if (
+  finalImageUrls.some(
+    (url) =>
+      typeof url !== "string" ||
+      url.length > 2000 ||
+      !/^https?:\/\/\S+$/i.test(url.trim())
+  )
+) {
+  return res.status(400).json({
+    error: "All product pictures must have valid HTTP or HTTPS URLs.",
+  });
+}
+
+if (!Array.isArray(imageUrls) || imageUrls.length > 5) {
+  return res.status(400).json({
+    error: "You can add a maximum of five product pictures.",
+  });
+}
 
       if (imageUrl) {
         try {
@@ -279,7 +504,7 @@ app.patch("/api/products", requireOwner, async (req, res) => {
       message: "Products saved successfully.",
       products: normalizedProducts,
     });
-  } catch (error) {
+      } catch (error) {
     console.error("Failed to save products:", error);
     res.status(500).json({
       error: "Could not save products.",
@@ -405,10 +630,13 @@ app.post("/api/orders", async (req, res) => {
 
 const orderItems = [];
 const savedProducts = await getSetting("products", products);
-  for (const item of items) {
-    const product = savedProducts.find(
-  (availableProduct) => availableProduct.id === item.productId
-);
+const sellerProducts = await getSellerProducts();
+const allProducts = [...savedProducts, ...sellerProducts];
+
+for (const item of items) {
+  const product = allProducts.find(
+    (availableProduct) => availableProduct.id === item.productId
+  );
     const budget = Number(item.budget);
 
     if (!product || !product.available) {
@@ -424,10 +652,18 @@ const savedProducts = await getSetting("products", products);
     }
 
     orderItems.push({
-      productId: product.id,
-      productName: product.name,
-      budget,
-    });
+  productId: product.id,
+  productName: product.name,
+  budget,
+  ...(product.sellerId
+    ? {
+        sellerId: product.sellerId,
+        sellerName: product.sellerName,
+        sellerPhone: product.sellerPhone,
+        sellerLocation: product.sellerLocation,
+      }
+    : {}),
+});
   }
 
   const total = orderItems.reduce((sum, item) => sum + item.budget, 0);
@@ -480,6 +716,46 @@ app.get("/api/orders", requireOwner, async (_req, res) => {
     res.status(500).json({ error: "Failed to load orders." });
   }
 });
+app.get("/api/owner/seller-products", requireOwner, async (_req, res) => {
+  try {
+    const sellerProducts = await getSellerProducts();
+
+    res.json({
+      products: sellerProducts,
+    });
+  } catch (error) {
+    console.error("Failed to load seller products:", error);
+    res.status(500).json({
+      error: "Could not load seller products.",
+    });
+  }
+});
+
+app.patch(
+  "/api/owner/seller-products/:id/remove",
+  requireOwner,
+  async (req, res) => {
+    try {
+      const removed = await deactivateSellerProduct(req.params.id);
+
+      if (!removed) {
+        return res.status(404).json({
+          error: "Seller product not found or already removed.",
+        });
+      }
+
+      res.json({
+        message: "Seller product removed successfully.",
+      });
+    } catch (error) {
+      console.error("Failed to remove seller product:", error);
+      res.status(500).json({
+        error: "Could not remove seller product.",
+      });
+    }
+  }
+);
+
 
 app.patch("/api/orders/:reference/status", requireOwner, async (req, res) => {
   const { status } = req.body ?? {};

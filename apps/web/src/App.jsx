@@ -1,6 +1,7 @@
 ﻿
 import { useEffect, useState } from "react";
 import OwnerDashboard from "./OwnerDashboard.jsx";
+import SellerPage from "./SellerPage.jsx";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
@@ -12,8 +13,9 @@ const formatKES = (amount) =>
   }).format(amount);
 
 export default function App() {
-    const [page, setPage] = useState("shop");
-  const isOwnerPage = window.location.pathname === "/owner";
+  
+  const isOwnerPage = window.location.pathname.startsWith("/owner");
+  const isSellerPage = window.location.pathname === "/sell";
   const [apiStatus, setApiStatus] = useState("Checking connection...");
   const [products, setProducts] = useState([]);
   const [loadError, setLoadError] = useState("");
@@ -23,8 +25,12 @@ export default function App() {
   supportPhone: "0110396227",
 });
   const [amounts, setAmounts] = useState({});
+  const [imageViewer, setImageViewer] = useState(null);
+const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [basket, setBasket] = useState([]);
-  const [basketMessage, setBasketMessage] = useState("");
+const [basketMessage, setBasketMessage] = useState("");
+const [sellerMessage, setSellerMessage] = useState("");
+const [sellerSubmitting, setSellerSubmitting] = useState(false);
 
     
   useEffect(() => {
@@ -66,6 +72,10 @@ fetch(`${API_URL}/api/products`)
   }, []);
   if (isOwnerPage) {
   return <OwnerDashboard />;
+}
+
+if (isSellerPage) {
+  return <SellerPage />;
 }
 
   const addToBasket = (product) => {
@@ -157,6 +167,19 @@ fetch(`${API_URL}/api/products`)
             Simple ordering · Cash on delivery to start
           </div>
         </section>
+        
+        <section className="seller-section">
+          <p className="eyebrow">SELL WITH MUSAVI'S GROCERY</p>
+          <h2>Are you a seller?</h2>
+          <p>
+            Reach customers by listing your groceries, clothes, shoes,
+            home utensils, and other products.
+          </p>
+          <a className="primary-button" href="/sell">
+            Add Your Products Here
+          </a>
+        </section>
+
 
         <section className="shop-intro" id="shop">
           <p className="eyebrow">FRESH PICKS</p>
@@ -171,11 +194,34 @@ fetch(`${API_URL}/api/products`)
               <article className="product-card" key={product.id}>
                 
 <div className="product-picture">
-  {product.imageUrl ? (
+  {(
+    Array.isArray(product.imageUrls) && product.imageUrls.length > 0
+      ? product.imageUrls
+      : product.imageUrl
+        ? [product.imageUrl]
+        : []
+  ).length > 0 ? (
     <img
-      src={product.imageUrl}
+      src={
+        (Array.isArray(product.imageUrls) && product.imageUrls.length > 0
+          ? product.imageUrls
+          : [product.imageUrl])[0]
+      }
       alt={product.name}
       className="product-image"
+      onClick={() => {
+        const images =
+          Array.isArray(product.imageUrls) && product.imageUrls.length > 0
+            ? product.imageUrls
+            : [product.imageUrl];
+
+        setImageViewer({
+          name: product.name,
+          images,
+        });
+        setSelectedImageIndex(0);
+      }}
+      style={{ cursor: "pointer" }}
     />
   ) : (
     {
@@ -233,10 +279,29 @@ fetch(`${API_URL}/api/products`)
                 </div>
               </article>
             ))}
+          
           </div>
         </section>
 
+        
+<section className="seller-section">
+  <p className="eyebrow">🌟 GROW WITH MUSAVI'S GROCERY 🌟</p>
+  <h2>🛍️ Are You a Seller?</h2>
+  <p>
+    👕 Sell clothes, 👟 shoes, 🏠 home utensils,
+    and more through MUSAVI'S GROCERY!
+  </p>
+  <p>
+    🤝 Reach more customers and grow your business with us.
+  </p>
+  <a className="primary-button" href="/sell">
+    ➕ 🛒 Add Your Products Here
+  </a>
+</section>
+
+
         <section className="basket-section" id="basket">
+
           <p className="eyebrow">YOUR ORDER</p>
           <h2>Shopping basket</h2>
 
@@ -404,8 +469,7 @@ checkoutForm?.reset();
 disabled={basket.length === 0 || shopSettings.closed}            >
               Confirm Details
             </button>
-          </form>
-          id="checkout-form"
+                    </form>
         </section>
 
       </main>
@@ -419,6 +483,88 @@ disabled={basket.length === 0 || shopSettings.closed}            >
     <a href="tel:+254110396227">0110396227</a>
   </p>
 </footer>
+
+      {imageViewer && (
+        <div
+          onClick={() => setImageViewer(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.9)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              background: "#fff",
+              padding: "15px",
+              borderRadius: "12px",
+              maxWidth: "650px",
+              width: "100%",
+              textAlign: "center",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setImageViewer(null)}
+              style={{ float: "right", padding: "8px 14px" }}
+            >
+              Close ✕
+            </button>
+
+            <h3>{imageViewer.name}</h3>
+
+            <img
+              src={imageViewer.images[selectedImageIndex]}
+              alt={imageViewer.name}
+              style={{
+                width: "100%",
+                maxHeight: "65vh",
+                objectFit: "contain",
+                borderRadius: "8px",
+              }}
+            />
+
+            <p>
+              Picture {selectedImageIndex + 1} of {imageViewer.images.length}
+            </p>
+
+            {imageViewer.images.length > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", gap: "15px" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedImageIndex((current) =>
+                      current === 0
+                        ? imageViewer.images.length - 1
+                        : current - 1
+                    )
+                  }
+                >
+                  ← Previous
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedImageIndex((current) =>
+                      (current + 1) % imageViewer.images.length
+                    )
+                  }
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

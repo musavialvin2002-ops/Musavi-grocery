@@ -9,11 +9,19 @@ const formatKES = (amount) =>
   }).format(amount);
 
 export default function OwnerDashboard() {
+  const isSellersPage = window.location.pathname === "/owner/sellers";
+  const isGroceriesPage = window.location.pathname === "/owner/groceries";
+
   const [orders, setOrders] = useState([]);
   const [message, setMessage] = useState("Loading orders...");
   const [refreshing, setRefreshing] = useState(false);
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+const [loginMessage, setLoginMessage] = useState("");
 const [products, setProducts] = useState([]);
+const [sellerProducts, setSellerProducts] = useState([]);
+const [sellerProductsMessage, setSellerProductsMessage] = useState("");
+const [loadingSellerProducts, setLoadingSellerProducts] = useState(false);
 const [newProduct, setNewProduct] = useState({
   name: "",
   category: "Fresh Produce",
@@ -30,6 +38,31 @@ const [shopSettings, setShopSettings] = useState({
 });
 const [savingSettings, setSavingSettings] = useState(false);
 const [settingsMessage, setSettingsMessage] = useState("");
+async function loginOwner(event) {
+  event.preventDefault();
+  setLoginMessage("Checking password...");
+
+  try {
+    const response = await fetch(`${API_URL}/api/orders`, {
+      headers: {
+        "x-owner-password": ownerPassword,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Incorrect password. Please try again.");
+    }
+
+    setIsAuthenticated(true);
+    setLoginMessage("");
+  } catch (error) {
+    setLoginMessage(
+      error.message || "Login failed. Please try again."
+    );
+  }
+}
     async function loadOrders() {
     setRefreshing(true);
 
@@ -89,7 +122,8 @@ const response = await fetch(`${API_URL}/api/orders`, {
       setMessage(error.message || "Could not update order status.");
     }
   }
-  async function loadProducts() {
+  
+async function loadProducts() {
   try {
     const response = await fetch(`${API_URL}/api/products`);
 
@@ -99,11 +133,99 @@ const response = await fetch(`${API_URL}/api/orders`, {
       throw new Error(data.error || "Could not load products.");
     }
 
-    setProducts(data.products || []);
+    const allProducts = data.products || [];
+
+    // Keep marketplace products separate from your own products.
+    setProducts(
+      allProducts.filter(
+        (product) => !String(product.id).startsWith("seller-")
+      )
+    );
+
+    setSellerProducts(
+      allProducts.filter(
+        (product) => String(product.id).startsWith("seller-")
+      )
+    );
   } catch (error) {
     setSettingsMessage(error.message || "Could not load products.");
   }
 }
+
+async function loadSellerProducts() {
+  setLoadingSellerProducts(true);
+  setSellerProductsMessage("");
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/owner/seller-products`,
+      {
+        headers: {
+          "x-owner-password": ownerPassword,
+        },
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Could not load marketplace products."
+      );
+    }
+
+    setSellerProducts(data.products || []);
+    setSellerProductsMessage(
+      data.products?.length
+        ? ""
+        : "No marketplace seller products found."
+    );
+  } catch (error) {
+    setSellerProductsMessage(
+      error.message || "Could not load marketplace products."
+    );
+  } finally {
+    setLoadingSellerProducts(false);
+  }
+}
+
+async function deactivateMarketplaceProduct(productId) {
+  const confirmed = window.confirm(
+    "Are you sure you want to deactivate this seller product?"
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/owner/seller-products/${encodeURIComponent(productId)}/remove`,
+      {
+        method: "PATCH",
+        headers: {
+          "x-owner-password": ownerPassword,
+        },
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Could not deactivate seller product."
+      );
+    }
+
+    setSellerProductsMessage("Seller product deactivated successfully.");
+
+    await loadSellerProducts();
+    await loadProducts();
+  } catch (error) {
+    setSellerProductsMessage(
+      error.message || "Could not deactivate seller product."
+    );
+  }
+}
+
 
 async function loadShopSettings() {
   try {
@@ -252,18 +374,84 @@ async function saveShopSettings() {
   }
 }
   useEffect(() => {
-  loadOrders();
-  loadProducts();
-  loadShopSettings();
-}, []);
+  if (!isAuthenticated) return;
 
+  if (isGroceriesPage) {
+    loadProducts();
+    loadShopSettings();
+    return;
+  }
+
+  if (isSellersPage) {
+    return;
+  }
+
+  loadOrders();
+}, [isAuthenticated, isGroceriesPage, isSellersPage]);
+
+  if (!isAuthenticated) {
   return (
     <main className="owner-dashboard">
+      <section className="owner-orders">
+        <h1>MUSAVI'S GROCERY</h1>
+        <h2>Owner Login</h2>
+        <p>Enter your owner password to continue.</p>
+
+        <form onSubmit={loginOwner}>
+          <label>
+            Owner password
+            <input
+              type="password"
+              value={ownerPassword}
+              onChange={(event) => setOwnerPassword(event.target.value)}
+              placeholder="Enter owner password"
+              autoComplete="current-password"
+              required
+            />
+          </label>
+
+          <button type="submit" className="add-button">
+            Login
+          </button>
+        </form>
+
+        {loginMessage && (
+          <p role="status">{loginMessage}</p>
+        )}
+      </section>
+    </main>
+  );
+}
+
+return (
+    <main className="owner-dashboard">
+            {!isSellersPage && (
       <header className="owner-header">
         <div>
           <p className="eyebrow">SELLER AREA</p>
           <h1>Harvest Desk</h1>
           <p>MUSAVI'S GROCERY — Order Management</p>
+          
+          
+<button
+  type="button"
+  onClick={() => {
+    window.location.href = "/owner/sellers";
+  }}
+>
+  Marketplace Sellers
+</button>
+
+<button
+  type="button"
+  onClick={() => {
+    window.location.href = "/owner/groceries";
+  }}
+>
+  Grocery Management
+</button>
+
+
         </div>
 
         <input
@@ -281,8 +469,10 @@ async function saveShopSettings() {
         >
           {refreshing ? "Refreshing..." : "Refresh Orders"}
         </button>
-      </header>
+            </header>
+      )}
 
+      {!isSellersPage && !isGroceriesPage && (
       <section className="owner-stats">
         <article className="owner-stat">
           <span>Total orders</span>
@@ -305,8 +495,20 @@ async function saveShopSettings() {
           </strong>
         </article>
       </section>
+      )}
 
+            {isGroceriesPage && (
       <section className="owner-orders">
+        
+<button
+  type="button"
+  onClick={() => {
+    window.location.href = "/owner";
+  }}
+>
+  Back to Orders Dashboard
+</button>
+
         <h2>Shop settings</h2>
 
         {settingsMessage && (
@@ -364,7 +566,103 @@ async function saveShopSettings() {
           {savingSettings ? "Saving..." : "Save Shop Settings"}
         </button>
       </section>
+      )}
 
+      
+      {isSellersPage && (
+  <section className="owner-orders">
+    <button
+      type="button"
+      onClick={() => {
+        window.location.href = "/owner";
+      }}
+    >
+      Back to Owner Dashboard
+    </button>
+    
+    <label>
+      Owner password
+      <input
+        type="password"
+        placeholder="Enter owner password"
+        value={ownerPassword}
+        onChange={(event) => setOwnerPassword(event.target.value)}
+        autoComplete="current-password"
+      />
+    </label>
+
+
+    <h2>Marketplace Sellers</h2>
+        <p>
+          Manage products submitted by other sellers.
+          Their contact details are visible only in this owner dashboard.
+        </p>
+
+        <button
+          type="button"
+          onClick={loadSellerProducts}
+          disabled={loadingSellerProducts}
+        >
+          {loadingSellerProducts
+            ? "Loading sellers..."
+            : "View Marketplace Products"}
+        </button>
+
+        {sellerProductsMessage && (
+          <p>{sellerProductsMessage}</p>
+        )}
+
+        {sellerProducts.map((product) => (
+          <article className="owner-order-card" key={product.id}>
+            <h3>{product.name}</h3>
+
+            <p>
+              <strong>Seller:</strong>{" "}
+              {product.sellerName || "Name not provided"}
+            </p>
+
+            <p>
+              <strong>Seller phone:</strong>{" "}
+              {product.sellerPhone || "Not provided"}
+            </p>
+
+            <p>
+              <strong>Seller location:</strong>{" "}
+              {product.sellerLocation || "Not provided"}
+            </p>
+
+            <p>
+              <strong>Category:</strong> {product.category || "Not specified"}
+            </p>
+
+            <p>
+              <strong>Price:</strong>{" "}
+              KSh {product.pricePerKg ?? "Not set"} / {product.unit || "unit"}
+            </p>
+
+            <p>
+              <strong>Availability:</strong>{" "}
+              {product.available ? "Available" : "Unavailable"}
+            </p>
+
+            {product.description && (
+              <p>
+                <strong>Description:</strong> {product.description}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => deactivateMarketplaceProduct(product.id)}
+            >
+              Deactivate Seller Product
+            </button>
+          </article>
+        ))}
+          </section>
+)}
+
+            {isGroceriesPage && (
       <section className="owner-orders">
         <h2>Manage groceries</h2>
         <p>Edit your products below, then save your changes.</p>
@@ -575,8 +873,10 @@ async function saveShopSettings() {
         >
           {savingSettings ? "Saving..." : "Save Product Changes"}
         </button>
-      </section>
+            </section>
+      )}
 
+      {!isSellersPage && !isGroceriesPage && (
       <section className="owner-orders">
         <h2>Customer orders</h2>
 
@@ -627,7 +927,8 @@ async function saveShopSettings() {
             </p>
           </article>
         ))}
-      </section>
+            </section>
+      )}
     </main>
   );
 }
